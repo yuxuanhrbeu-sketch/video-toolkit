@@ -10,6 +10,10 @@
 
 所有处理都在浏览器本地完成：**无后端、无上传、无数据收集**。网络行为只有两类：下载时请求直链 / HLS / 视频 CDN；解析 B站链接时请求第三方公共解析服务。
 
+## 视频介绍
+
+B站 37 秒快速介绍：<https://www.bilibili.com/video/BV1LGnG6LEvJ>
+
 ## 直接使用
 
 **在线地址：<https://yuxuanhrbeu-sketch.github.io/video-toolkit/>**
