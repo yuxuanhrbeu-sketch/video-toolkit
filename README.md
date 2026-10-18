@@ -12,13 +12,13 @@
 
 ## 直接使用
 
-部署到 GitHub Pages 后打开：
+**在线地址：<https://yuxuanhrbeu-sketch.github.io/video-toolkit/>**
 
-```
-https://<你的用户名>.github.io/<仓库名>/
-```
+GitHub Pages 托管，打开即用，无需安装、无需构建。
 
-也可以直接下载本仓库，双击 `index.html` 在本地打开（功能一致）。
+![界面](screenshot.png)
+
+也可以下载本仓库，双击 `index.html` 在本地打开（功能一致）。
 
 > 注意：GitHub 的仓库页面本身不会执行 HTML；「直接使用」指的是 GitHub Pages 提供的静态站点地址。
 
