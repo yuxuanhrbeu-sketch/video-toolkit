@@ -125,7 +125,7 @@
     <h2>使用前请阅读</h2>
     <p class="lead">这是一个纯静态、只在本机运行的视频工具箱。为了降低误用与版权风险，请先确认：</p>
     <ul class="notice-list">
-      <li><b>视频下载</b>仅支持你提供的<b>直链 / HLS 播放列表</b>；不解析任何平台页面，受目标站点 CORS 限制。</li>
+      <li><b>视频下载</b>支持你提供的<b>直链 / HLS / B站视频链接</b>；B站解析由第三方公共服务完成（匿名最高 720P），不绕过登录、会员或付费内容。</li>
       <li><b>封面抽帧 / 视频内抽帧</b>只读取你<b>主动选择的本机视频</b>，不上传、不联网。</li>
       <li>请仅用于你<b>拥有合法权利</b>或已获授权的内容；请勿用于盗版、侵权或传播他人作品。</li>
       <li>导出文件仅供个人使用；画面与视频版权归原权利人，<b>因使用产生的责任由使用者自行承担</b>。</li>
@@ -172,14 +172,18 @@
     <div class="panel">
       <h2>粘贴视频直链 / HLS 地址</h2>
       <textarea id="urlInput" spellcheck="false" placeholder="支持：
+· B站视频链接 / BV 号 / av 号（实验性：第三方解析，匿名最高 720P）
 · 直链：.mp4 / .m4a / .mp3 / .webm / .flv / .mkv
 · HLS：.m3u8 播放列表
 
-不支持 B站 / YouTube / 抖音等平台页面链接（不解析站点、不绕过任何限制）。"></textarea>
+不支持 YouTube / 抖音等平台页面链接；不支持绕过登录、会员或付费内容。"></textarea>
       <div class="row">
         <button id="btnAdd" class="primary">加入下载队列</button>
         <button id="btnClearInput" class="ghost small">清空</button>
         <span style="font-size:12px;color:#66718a">仅下载你有权保存的内容</span>
+      </div>
+      <div style="margin-top:8px;font-size:12px;color:#66718a">
+        B站解析由第三方公共服务（api.injahow.cn）完成，匿名最高 720P；多P 默认加入前 12 个分P，链接带 <code>?p=N</code> 时只下该 P。
       </div>
       <div id="dlHint" class="hint"></div>
     </div>
@@ -300,6 +304,86 @@
   var safeName = function (s) {
     return String(s || 'file').replace(/[\\/:*?"<>|\r\n\t]+/g, '_').replace(/\s+/g, ' ').trim().slice(0, 110) || 'file';
   };
+
+  function jsonp(url) {
+    return new Promise(function (resolve, reject) {
+      var cb = '__cb_' + Math.random().toString(36).slice(2);
+      var s = document.createElement('script');
+      var done = false;
+      var timer = setTimeout(function () { finish(new Error('请求超时')); }, 12000);
+      function finish(err, data) {
+        if (done) return; done = true; clearTimeout(timer);
+        try { delete window[cb]; } catch (e) { window[cb] = undefined; }
+        if (s.parentNode) s.remove();
+        err ? reject(err) : resolve(data);
+      }
+      window[cb] = function (d) { finish(null, d); };
+      s.onerror = function () { finish(new Error('脚本加载失败')); };
+      s.referrerPolicy = 'no-referrer';
+      s.src = url + (url.indexOf('?') >= 0 ? '&' : '?') + 'jsonp=jsonp&callback=' + cb;
+      document.head.appendChild(s);
+    });
+  }
+  var BILI_Q = { 16: '360P', 32: '480P', 64: '720P', 74: '720P60', 80: '1080P', 112: '1080P+', 116: '1080P60' };
+  function biliPageTask(data, pageNo, total) {
+    var bv = data.bvid;
+    var api = 'https://api.injahow.cn/bparse/?' + (bv ? ('bv=' + encodeURIComponent(bv)) : ('av=' + data.aid)) + '&p=' + pageNo + '&q=64&format=mp4';
+    return fetch(api, { credentials: 'omit', referrerPolicy: 'no-referrer' }).then(function (r) {
+      if (!r.ok) throw new Error('解析服务 HTTP ' + r.status);
+      return r.json();
+    }).then(function (j) {
+      if (!j || j.code !== 0 || !j.url) throw new Error((j && j.message) || '解析失败（该视频可能受限）');
+      var q = j.quality || 64;
+      var label = BILI_Q[q] || (q + 'P');
+      var title = (data.title || ('B站视频 ' + (bv || data.aid))) + (total > 1 ? (' - P' + pageNo) : '');
+      var fname = safeName(title) + ' [' + label + '].mp4';
+      addTask({ title: title + '（' + label + '）', filename: fname, url: j.url, kind: 'file' });
+      return true;
+    });
+  }
+  function handleBili(text) {
+    if (/b23\.tv|bili2233\.cn/i.test(text)) {
+      dlHintShow('b23.tv 短链无法直接解析：请先在浏览器打开短链，复制地址栏里完整的 bilibili.com/video/BV... 链接。', 'warn', true);
+      return;
+    }
+    var bvM = text.match(/BV[0-9A-Za-z]{10}/);
+    var avM = text.match(/av(\d+)/i);
+    if (!bvM && !avM) { dlHintShow('没有识别到 BV 号 / av 号', 'err'); return; }
+    var pM = text.match(/[?&]p=(\d+)/);
+    var onlyP = pM ? parseInt(pM[1], 10) : 0;
+    var viewUrl = bvM
+      ? 'https://api.bilibili.com/x/web-interface/view?bvid=' + bvM[0]
+      : 'https://api.bilibili.com/x/web-interface/view?aid=' + avM[1];
+    dlHintShow('正在读取视频信息…', '', true);
+    jsonp(viewUrl).then(function (res) {
+      if (!res || res.code !== 0 || !res.data) throw new Error((res && res.message) || '获取视频信息失败');
+      var data = res.data;
+      var pages = (data.pages && data.pages.length) ? data.pages : [{ page: 1, part: data.title }];
+      var list;
+      if (onlyP) {
+        if (onlyP < 1 || onlyP > pages.length) throw new Error('该视频没有第 ' + onlyP + ' P（共 ' + pages.length + ' P）');
+        list = [onlyP];
+      } else {
+        list = [];
+        for (var i = 1; i <= Math.min(pages.length, 12); i++) list.push(i);
+      }
+      dlHintShow('识别到《' + (data.title || '') + '》共 ' + pages.length + ' P，正在解析 ' + (onlyP ? ('P' + onlyP) : (list.length + ' 个分P')) + '…', '', true);
+      var chain = Promise.resolve(), added = 0;
+      list.forEach(function (pn) {
+        chain = chain.then(function () {
+          return biliPageTask(data, pn, pages.length).then(function () { added++; });
+        });
+      });
+      return chain.then(function () {
+        if (pages.length > 12 && !onlyP) dlHintShow('共 ' + pages.length + ' P，已加入前 12 个；其余请在链接后加 ?p=N 单独下载', 'warn', true);
+        else dlHintShow('已加入 ' + added + ' 个 B站任务（匿名最高 720P）', 'ok');
+      });
+    }).catch(function (e) {
+      var msg = String((e && e.message) || e);
+      if (/Failed to fetch|NetworkError|Load failed/i.test(msg)) msg = '解析服务不可用（网络 / CORS），请稍后重试';
+      dlHintShow('B站解析失败：' + msg, 'err', true);
+    });
+  }
 
   /* ---------- 进入提示 ---------- */
   var notice = $('#notice'), noticeCheck = $('#noticeCheck'), noticeEnter = $('#noticeEnter');
@@ -507,12 +591,17 @@
   }
   $('#btnAdd').addEventListener('click', function () {
     var text = $('#urlInput').value.trim();
-    if (!text) { dlHintShow('先粘贴一个直链或 m3u8 地址', 'warn'); return; }
+    if (!text) { dlHintShow('先粘贴一个链接或 BV 号', 'warn'); return; }
+    if (/bilibili\.com|b23\.tv|bili2233\.cn/i.test(text) || /BV[0-9A-Za-z]{10}/.test(text) || /(^|[^A-Za-z])av\d+/i.test(text)) {
+      handleBili(text);
+      $('#urlInput').value = '';
+      return;
+    }
     var m = text.match(/https?:\/\/[^\s"'<>，,。]+/);
     var url = m ? m[0] : text;
-    if (!/^https?:\/\//i.test(url)) { dlHintShow('请提供 http(s) 开头的直链或 m3u8 地址', 'err'); return; }
-    if (/bilibili\.com|b23\.tv|youtube\.com|youtu\.be|douyin\.com|tiktok\.com/i.test(url)) {
-      dlHintShow('不支持平台页面链接：本工具不解析站点、不绕过任何限制。请使用你有权保存的直链或 m3u8。', 'warn', true);
+    if (!/^https?:\/\//i.test(url)) { dlHintShow('请提供 http(s) 开头的直链、m3u8 或 B站链接', 'err'); return; }
+    if (/youtube\.com|youtu\.be|douyin\.com|tiktok\.com/i.test(url)) {
+      dlHintShow('暂不支持 YouTube / 抖音等平台页面链接：需要专门的解析能力，且可能违反平台条款。请使用你有权保存的直链或 m3u8。', 'warn', true);
       return;
     }
     var name = safeName(decodeURIComponent((url.split('#')[0].split('?')[0].split('/').pop() || 'download')));
